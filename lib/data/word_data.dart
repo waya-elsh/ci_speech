@@ -46,5 +46,11 @@ final List<WordItem> trainingWords = [
     image: "assets/images/family.png",
     audio: "assets/audio/family-demo-3.mp3",
   ),
-  WordItem(word: "عمل", image: "assets/images/work.png", audio: "assets/audio/work-demo-5.mp3")
+  WordItem(word: "عمل", image: "assets/images/work.png", audio: "assets/audio/work-demo-5.mp3"),
+  WordItem(word: "صديقي", image: "assets/images/friend.png", audio: "assets/audio/friend.mp3"),
+  WordItem(word: "الرسالة", image: "assets/images/message.png", audio: "assets/audio/message.mp3"),
+  WordItem(word: "التحدث", image: "assets/images/talk.png", audio: "assets/audio/talk.mp3"),
+  WordItem(word: "الزواج", image: "assets/images/married.png", audio: "assets/audio/married.mp3"),
+  WordItem(word: "الطريق", image: "assets/images/road.png", audio: "assets/audio/road.mp3"),
+
 ];
