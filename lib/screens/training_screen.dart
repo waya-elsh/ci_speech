@@ -1,25 +1,15 @@
 import 'dart:async';
-
-import 'dart:convert';
+import 'dart:developer' as developer;
 
 import 'package:ci_speech/data/word_data.dart';
-
+import 'package:ci_speech/ml/classifier.dart';
 import 'package:ci_speech/screens/results_screen.dart';
-
 import 'package:flutter/material.dart';
-
 import 'package:google_fonts/google_fonts.dart';
-
 import 'package:just_audio/just_audio.dart';
-
 import 'package:record/record.dart';
-
-import 'package:http/http.dart' as http;
-
 import 'package:path_provider/path_provider.dart';
-
 import 'package:confetti/confetti.dart';
-
 import 'package:shared_preferences/shared_preferences.dart';
 
 class TrainingScreen extends StatefulWidget {
@@ -32,7 +22,8 @@ class TrainingScreen extends StatefulWidget {
 
 }
 
-class _TrainingScreenState extends State<TrainingScreen> {
+class _TrainingScreenState extends State<TrainingScreen>
+    with TickerProviderStateMixin {
 
   final AudioPlayer _wordPlayer = AudioPlayer();
 
@@ -41,8 +32,20 @@ class _TrainingScreenState extends State<TrainingScreen> {
   final AudioRecorder _recorder = AudioRecorder();
 
   final ConfettiController _confetti =
-
       ConfettiController(duration: const Duration(seconds: 4));
+  final AyaClassifier _classifier = AyaClassifier();
+  late final AnimationController _pulse = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1100),
+  )..repeat();
+  Timer? _maxRecordTimer;
+  static const Duration _maxRecordDuration = Duration(seconds: 5);
+
+  @override
+  void initState() {
+    super.initState();
+    _classifier.load();
+  }
 
   int currentIndex = 0;
 
@@ -96,179 +99,116 @@ Future<void> playFx(String asset) async {
     await _fxPlayer.stop();
     await _fxPlayer.setAsset(asset);
     await _fxPlayer.play();
-  } catch (e) {
-    print("FX AUDIO ERROR: $e");
+  } catch (e, st) {
+    // Audio FX failures are silent for the user — logged for developers only.
+    developer.log('playFx($asset) failed: $e',
+        name: 'ci_speech.fx', error: e, stackTrace: st);
   }
 }
 
   Future<void> startRecording() async {
+    if (isRecording || trainingFinished) return;
+    if (!await _recorder.hasPermission()) return;
 
-    if (await _recorder.hasPermission()) {
+    final dir = await getTemporaryDirectory();
+    final path = '${dir.path}/child_record.wav';
 
-      final dir = await getTemporaryDirectory();
+    await _recorder.start(
+      const RecordConfig(
+        encoder: AudioEncoder.wav,
+        sampleRate: 16000,
+        numChannels: 1,
+      ),
+      path: path,
+    );
 
-      final path = '${dir.path}/child_record.wav';
+    setState(() {
+      isRecording = true;
+      feedback = "";
+    });
 
-      await _recorder.start(
-
-        const RecordConfig(
-
-          encoder: AudioEncoder.wav,
-
-          sampleRate: 16000,
-
-          numChannels: 1,
-
-        ),
-
-        path: path,
-
-      );
-
-      setState(() {
-
-        isRecording = true;
-
-        feedback = "";
-
-      });
-
-      Timer(const Duration(milliseconds: 1800), () async {
-
-        if (isRecording) {
-
-          await stopRecording();
-
-        }
-
-      });
-
-    }
-
+    _maxRecordTimer?.cancel();
+    _maxRecordTimer = Timer(_maxRecordDuration, () {
+      if (isRecording) stopRecording();
+    });
   }
 
   Future<void> stopRecording() async {
+    if (!isRecording) return;
+    _maxRecordTimer?.cancel();
+    _maxRecordTimer = null;
 
     final path = await _recorder.stop();
 
     setState(() {
-
       isRecording = false;
-
     });
 
     if (path != null) {
-
-      await sendToAI(path);
-
+      await evaluateLocally(path);
     }
-
   }
 
-  Future<void> sendToAI(String audioPath) async {
-
+  // يحلل النطق محليًا داخل التطبيق باستخدام نموذج المراجع لكل كلمة
+  Future<void> evaluateLocally(String audioPath) async {
     try {
+      final wid = trainingWords[currentIndex].wordId;
+      final p = await _classifier.predictFromWavFile(audioPath, wordId: wid);
+      developer.log('p_correct=$p target=$wid', name: 'ci_speech.classifier');
 
-      var request = http.MultipartRequest(
-
-
-        'POST',
-
-        Uri.parse("http://10.0.2.2:5051/predict"),
-
-      );
-      request.fields['word_id'] = trainingWords[currentIndex].wordId;
-
-      request.files.add(await http.MultipartFile.fromPath('audio', audioPath));
-
-      var response = await request.send();
-
-      if (response.statusCode == 200) {
-
-        var body = await response.stream.bytesToString();
-
-        var data = jsonDecode(body);
-
-        double p = data["correct_probability"];
-
-        String level = data["therapy_level"];
-
-        setState(() {
-
-          probability = p;
-
-          attemptCount++;
-
-        });
-
-        if (level == "excellent") {
-
-          excellentCount++;
-
-          await saveResults();
-
-          setState(() => feedback = "ممتاز!");
-
-          await playFx("assets/audio/excellent.mp3");
-
-          Future.delayed(const Duration(seconds: 2), nextWord);
-
-        } else if (level == "good_try") {
-
-          goodCount++;
-
-          await saveResults();
-
-          setState(() => feedback = "محاولة جيدة");
-
-          await playFx("assets/audio/goodtry.mp3");
-
-          Future.delayed(const Duration(seconds: 2), nextWord);
-
-        } else {
-
-          retryCount++;
-
-          failAttempts++;
-
-          await saveResults();
-
-          if (failAttempts < 2) {
-
-            setState(() => feedback = "حاول مرة أخرى");
-
-            await playFx("assets/audio/retry.mp3");
-
-          } else {
-
-            if (!difficultIndexes.contains(currentIndex)) {
-
-              difficultIndexes.add(currentIndex);
-
-            }
-
-            setState(() => feedback = "سنعود لها لاحقًا");
-
-            await playFx("assets/audio/goodtry.mp3");
-
-            Future.delayed(const Duration(seconds: 2), nextWord);
-
-          }
-
-        }
-
+      // p comes from v3 model as one of: 0.0 (gate), 0.20 (retry),
+      // 0.70 (good_try), 0.95 (excellent).
+      final String level;
+      if (p >= 0.90) {
+        level = "excellent";
+      } else if (p >= 0.50) {
+        level = "good_try";
+      } else {
+        level = "retry";
       }
 
-    } catch (e) {
-
       setState(() {
-
-        feedback = "خطأ في الاتصال";
-
+        probability = p;
+        attemptCount++;
       });
 
+      if (level == "excellent") {
+        excellentCount++;
+        await saveResults();
+        setState(() => feedback = "ممتاز!");
+        await playFx("assets/audio/excellent.mp3");
+        Future.delayed(const Duration(seconds: 2), nextWord);
+      } else if (level == "good_try") {
+        goodCount++;
+        await saveResults();
+        setState(() => feedback = "محاولة جيدة");
+        await playFx("assets/audio/goodtry.mp3");
+        Future.delayed(const Duration(seconds: 2), nextWord);
+      } else {
+        retryCount++;
+        failAttempts++;
+        await saveResults();
+        if (failAttempts < 2) {
+          setState(() => feedback = "حاول مرة أخرى");
+          await playFx("assets/audio/retry.mp3");
+        } else {
+          if (!difficultIndexes.contains(currentIndex)) {
+            difficultIndexes.add(currentIndex);
+          }
+          setState(() => feedback = "سنعود لها لاحقًا");
+          await playFx("assets/audio/goodtry.mp3");
+          Future.delayed(const Duration(seconds: 2), nextWord);
+        }
+      }
+    } catch (e, st) {
+      // Never expose technical errors to the kid — log for the developer,
+      // and present the failure as a normal "try again" prompt.
+      developer.log('evaluateLocally failed: $e',
+          name: 'ci_speech.classifier', error: e, stackTrace: st);
+      setState(() {
+        feedback = "حاول مرة أخرى";
+      });
     }
-
   }
 
   Future<void> nextWord() async {
@@ -375,6 +315,8 @@ Future<void> playFx(String asset) async {
 
   void dispose() {
 
+    _maxRecordTimer?.cancel();
+    _pulse.dispose();
     _wordPlayer.dispose();
 
     _fxPlayer.dispose();
@@ -432,7 +374,11 @@ Future<void> playFx(String asset) async {
                       borderRadius: BorderRadius.circular(25),
                     ),
                     child: Text(
-                      trainingFinished ? "رائع يا بطل!" : "استمع جيدًا ثم قل الكلمة",
+                      trainingFinished
+                          ? "رائع يا بطل!"
+                          : isRecording
+                              ? "تحدث الآن... ارفع إصبعك عند الانتهاء"
+                              : "اضغط مع الاستمرار وقل الكلمة",
                       style: GoogleFonts.cairo(
                         fontSize: 14,
                         fontWeight: FontWeight.w700,
@@ -475,14 +421,7 @@ Future<void> playFx(String asset) async {
                                       const Color(0xFF7DB9FF), 68),
                                 ),
                                 const SizedBox(width: 30),
-                                GestureDetector(
-                                  onTap: isRecording ? null : startRecording,
-                                  child: _circleBtn(
-                                    isRecording ? Icons.graphic_eq : Icons.mic,
-                                    const Color(0xFF253746),
-                                    88,
-                                  ),
-                                ),
+                                _holdToRecordButton(),
                               ],
                             ),
                           const SizedBox(height: 30),
@@ -517,6 +456,69 @@ Future<void> playFx(String asset) async {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _holdToRecordButton() {
+    const double base = 88;
+    const Color idleColor = Color(0xFF253746);
+    const Color activeColor = Color(0xFFE63946);
+    final color = isRecording ? activeColor : idleColor;
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTapDown: (_) => startRecording(),
+      onTapUp: (_) => stopRecording(),
+      onTapCancel: stopRecording,
+      child: SizedBox(
+        width: base + 36,
+        height: base + 36,
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            if (isRecording)
+              AnimatedBuilder(
+                animation: _pulse,
+                builder: (_, __) {
+                  final t = _pulse.value;
+                  return Container(
+                    width: base + 36 * t,
+                    height: base + 36 * t,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: activeColor.withOpacity(0.55 * (1 - t)),
+                        width: 3,
+                      ),
+                    ),
+                  );
+                },
+              ),
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 160),
+              curve: Curves.easeOut,
+              width: isRecording ? base + 12 : base,
+              height: isRecording ? base + 12 : base,
+              decoration: BoxDecoration(
+                color: color,
+                shape: BoxShape.circle,
+                boxShadow: [
+                  BoxShadow(
+                    color: (isRecording ? activeColor : Colors.black)
+                        .withOpacity(isRecording ? 0.45 : 0.16),
+                    blurRadius: isRecording ? 18 : 8,
+                    offset: const Offset(0, 4),
+                  )
+                ],
+              ),
+              child: Icon(
+                isRecording ? Icons.mic : Icons.mic_none_rounded,
+                color: Colors.white,
+                size: (isRecording ? base + 12 : base) / 2.2,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

@@ -2,7 +2,7 @@
 
     <application
     
-        android:label="ci_speech"
+        android:label="نطقي"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
         android:usesCleartextTraffic="true">

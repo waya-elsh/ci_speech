@@ -14,6 +14,7 @@ class CiSpeechApp extends StatelessWidget {
   @override
 Widget build(BuildContext context) {
   return MaterialApp(
+    title: 'نطقي',
     debugShowCheckedModeBanner: false,
     theme: ThemeData(
       textTheme: GoogleFonts.cairoTextTheme(),

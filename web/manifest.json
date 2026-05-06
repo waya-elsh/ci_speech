@@ -1,11 +1,11 @@
 {
-    "name": "ci_speech",
-    "short_name": "ci_speech",
+    "name": "نطقي",
+    "short_name": "نطقي",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "background_color": "#ACE9FF",
+    "theme_color": "#ACE9FF",
+    "description": "نطقي — تطبيق لتعلم نطق الكلمات العربية مع كوكو",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [
