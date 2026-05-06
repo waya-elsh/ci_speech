@@ -1,241 +1,390 @@
-
-
 import 'dart:async';
+
 import 'dart:convert';
+
 import 'package:ci_speech/data/word_data.dart';
+
 import 'package:ci_speech/screens/results_screen.dart';
+
 import 'package:flutter/material.dart';
+
 import 'package:google_fonts/google_fonts.dart';
+
 import 'package:just_audio/just_audio.dart';
+
 import 'package:record/record.dart';
+
 import 'package:http/http.dart' as http;
+
 import 'package:path_provider/path_provider.dart';
+
 import 'package:confetti/confetti.dart';
+
 import 'package:shared_preferences/shared_preferences.dart';
 
 class TrainingScreen extends StatefulWidget {
+
   const TrainingScreen({super.key});
 
   @override
+
   State<TrainingScreen> createState() => _TrainingScreenState();
+
 }
 
 class _TrainingScreenState extends State<TrainingScreen> {
+
   final AudioPlayer _wordPlayer = AudioPlayer();
+
   final AudioPlayer _fxPlayer = AudioPlayer();
+
   final AudioRecorder _recorder = AudioRecorder();
+
   final ConfettiController _confetti =
+
       ConfettiController(duration: const Duration(seconds: 4));
 
   int currentIndex = 0;
+
   bool isRecording = false;
+
   String feedback = "";
+
   double probability = 0.0;
+
   int attemptCount = 0;
+
   bool trainingFinished = false;
 
   int excellentCount = 0;
+
   int goodCount = 0;
+
   int retryCount = 0;
 
   int failAttempts = 0;
+
   List<int> difficultIndexes = [];
+
   bool reviewMode = false;
+
   int reviewPointer = 0;
 
-  @override
-  void initState() {
-    super.initState();
-    
-  }
-
   Future<void> saveResults() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setInt('excellent', excellentCount);
-    await prefs.setInt('good', goodCount);
-    await prefs.setInt('retry', retryCount);
-  }
 
+    final prefs = await SharedPreferences.getInstance();
+
+    await prefs.setInt('excellent', excellentCount);
+
+    await prefs.setInt('good', goodCount);
+
+    await prefs.setInt('retry', retryCount);
+
+  }
 
   Future<void> playWordAudio() async {
-    await _wordPlayer.stop();
-    await _wordPlayer.setAsset(trainingWords[currentIndex].audio);
-    _wordPlayer.play();
-  }
 
-  Future<void> playFx(String asset) async {
+    await _wordPlayer.stop();
+
+    await _wordPlayer.setAsset(trainingWords[currentIndex].audio);
+
+    _wordPlayer.play();
+
+  }
+Future<void> playFx(String asset) async {
+  try {
     await _fxPlayer.stop();
     await _fxPlayer.setAsset(asset);
-    _fxPlayer.play();
+    await _fxPlayer.play();
+  } catch (e) {
+    print("FX AUDIO ERROR: $e");
   }
+}
 
   Future<void> startRecording() async {
+
     if (await _recorder.hasPermission()) {
+
       final dir = await getTemporaryDirectory();
+
       final path = '${dir.path}/child_record.wav';
 
-      await _recorder.start(const RecordConfig(), path: path);
+      await _recorder.start(
+
+        const RecordConfig(
+
+          encoder: AudioEncoder.wav,
+
+          sampleRate: 16000,
+
+          numChannels: 1,
+
+        ),
+
+        path: path,
+
+      );
 
       setState(() {
+
         isRecording = true;
+
         feedback = "";
+
       });
 
-      Timer(const Duration(milliseconds: 1400), () async {
+      Timer(const Duration(milliseconds: 1800), () async {
+
         if (isRecording) {
+
           await stopRecording();
+
         }
+
       });
+
     }
+
   }
 
   Future<void> stopRecording() async {
+
     final path = await _recorder.stop();
 
     setState(() {
+
       isRecording = false;
+
     });
 
     if (path != null) {
+
       await sendToAI(path);
+
     }
+
   }
 
-//    يرسل الملف الصوتي للذكاء الاصطناعي وتحليل النتيجةاو النطق ،لكن يطريقة غير مباشرة عن طريق إرسال طلب  الي سرفر المحلي
   Future<void> sendToAI(String audioPath) async {
+
     try {
+
       var request = http.MultipartRequest(
+
+
         'POST',
-        Uri.parse("http://10.0.2.2:5050/predict"),
+
+        Uri.parse("http://10.0.2.2:5051/predict"),
+
       );
+      request.fields['word_id'] = trainingWords[currentIndex].wordId;
 
       request.files.add(await http.MultipartFile.fromPath('audio', audioPath));
+
       var response = await request.send();
 
       if (response.statusCode == 200) {
+
         var body = await response.stream.bytesToString();
+
         var data = jsonDecode(body);
 
         double p = data["correct_probability"];
 
+        String level = data["therapy_level"];
+
         setState(() {
+
           probability = p;
+
           attemptCount++;
+
         });
 
-        if (p >= 0.90) {
+        if (level == "excellent") {
+
           excellentCount++;
+
           await saveResults();
 
-          setState(() => feedback = "ممتاز ");
+          setState(() => feedback = "ممتاز!");
+
           await playFx("assets/audio/excellent.mp3");
 
           Future.delayed(const Duration(seconds: 2), nextWord);
-        } else if (p >= 0.35) {
+
+        } else if (level == "good_try") {
+
           goodCount++;
+
           await saveResults();
 
-          setState(() => feedback = "محاولة جيدة ");
+          setState(() => feedback = "محاولة جيدة");
+
           await playFx("assets/audio/goodtry.mp3");
 
           Future.delayed(const Duration(seconds: 2), nextWord);
+
         } else {
+
           retryCount++;
+
           failAttempts++;
+
           await saveResults();
-//كل بعد محاولتين فاشلة يتم إضافة الكلمة لقائمة الكلمات الصعبة للمراجعة بعدين
+
           if (failAttempts < 2) {
-            setState(() => feedback = "حاول مرة أخرى ");
+
+            setState(() => feedback = "حاول مرة أخرى");
+
             await playFx("assets/audio/retry.mp3");
+
           } else {
+
             if (!difficultIndexes.contains(currentIndex)) {
+
               difficultIndexes.add(currentIndex);
+
             }
 
-            setState(() => feedback = "سنعود لها لاحقًا ");
+            setState(() => feedback = "سنعود لها لاحقًا");
+
             await playFx("assets/audio/goodtry.mp3");
 
             Future.delayed(const Duration(seconds: 2), nextWord);
+
           }
+
         }
+
       }
+
     } catch (e) {
+
       setState(() {
+
         feedback = "خطأ في الاتصال";
+
       });
+
     }
+
   }
 
   Future<void> nextWord() async {
+
     failAttempts = 0;
 
     if (!reviewMode) {
+
       if (currentIndex < trainingWords.length - 1) {
+
         setState(() {
+
           currentIndex++;
+
           feedback = "";
+
           probability = 0.0;
+
           attemptCount = 0;
+
         });
 
-        
       } else {
+
         if (difficultIndexes.isNotEmpty) {
+
           reviewMode = true;
+
           reviewPointer = 0;
-//هنا يبدا يرد علي كلمات للمراجعة الصعبة اللي غلط فيها الطفل في التدريب
+
           setState(() {
+
             currentIndex = difficultIndexes[reviewPointer];
-            feedback = "لنراجع الكلمات الصعبة ";
+
+            feedback = "لنراجع الكلمات الصعبة";
+
             probability = 0.0;
+
           });
 
-          
         } else {
+
           finishTraining();
+
         }
+
       }
+
     } else {
+
       if (reviewPointer < difficultIndexes.length - 1) {
+
         reviewPointer++;
 
         setState(() {
+
           currentIndex = difficultIndexes[reviewPointer];
+
           feedback = "";
+
           probability = 0.0;
+
         });
 
-       
       } else {
+
         finishTraining();
+
       }
+
     }
+
   }
 
   Future<void> finishTraining() async {
+
     setState(() {
+
       trainingFinished = true;
-      feedback = "أحسنت! انتهى التدريب ";
+
+      feedback = "أحسنت! انتهى التدريب";
+
     });
 
     _confetti.play();
+
     await playFx("assets/audio/finish.mp3");
 
     Future.delayed(const Duration(seconds: 3), () {
+
       Navigator.pushReplacement(
+
         context,
+
         MaterialPageRoute(builder: (_) => const ResultsScreen()),
+
       );
+
     });
+
   }
 
   @override
+
   void dispose() {
+
     _wordPlayer.dispose();
+
     _fxPlayer.dispose();
+
     _recorder.dispose();
+
     _confetti.dispose();
+
     super.dispose();
+
   }
 
   @override
