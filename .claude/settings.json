@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find /Users/monther/Desktop -name \"server.py\" -o -name \"Aya_Dataset\" -type d 2>/dev/null | head -5)",
+      "Read(//Users/monther/Desktop/**)",
+      "Bash(python3)",
+      "Bash(python3 -m pip list)",
+      "Bash(python3 -c \"import joblib; m=joblib.load\\('final_model.pkl'\\); s=joblib.load\\('final_scaler.pkl'\\); print\\('coef', m.coef_.shape, 'intercept', m.intercept_.shape\\); print\\('classes', m.classes_\\); print\\('mean', s.mean_.shape, 'scale', s.scale_.shape\\)\")",
+      "Bash(python3 -m pip install --user --quiet joblib scikit-learn numpy)",
+      "Bash(python3 export_model.py)",
+      "Bash(python3 -c ' *)",
+      "Bash(python3 -m pip install --user --quiet librosa)",
+      "Bash(flutter analyze *)",
+      "Bash(python3 calibration_python.py)",
+      "Bash(dart run *)",
+      "Bash(python3 dump_stages.py ASMDD/speaker_25_b_100/64.wav)"
+    ]
+  }
+}

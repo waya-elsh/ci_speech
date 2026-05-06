@@ -36,11 +36,12 @@ dependencies:
 
   permission_handler: ^11.3.1
 
-  http: ^1.2.1
   path_provider: ^2.1.2
   just_audio: ^0.10.5
   confetti: ^0.8.0
   shared_preferences: ^2.5.3
+  fftea: ^1.5.0
+  wav: ^1.4.0
   
 
   # The following adds the Cupertino Icons font to your application.
@@ -66,6 +67,8 @@ flutter:
   assets:
     - assets/images/
     - assets/audio/
+    - assets/model/
+    - test/fixtures/
 
   # The following line ensures that the Material Icons font is
   # included with your application, so that you can use the icons in
